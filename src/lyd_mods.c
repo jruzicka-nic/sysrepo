@@ -104,7 +104,7 @@ cleanup:
     return err_info;
 }
 
-sr_error_info_t *
+static sr_error_info_t *
 sr_lydmods_get_content_id(sr_main_shm_t *main_shm, struct ly_ctx *ly_ctx, uint32_t *cont_id)
 {
     sr_error_info_t *err_info = NULL;
@@ -1167,7 +1167,7 @@ cleanup:
     return err_info;
 }
 
-sr_error_info_t *
+static sr_error_info_t *
 sr_lydmods_ctx_load_modules(const struct lyd_node *sr_mods, struct ly_ctx *ly_ctx, int removed, int updated,
         int sched_features, int *change)
 {
@@ -2241,7 +2241,7 @@ cleanup:
     return err_info;
 }
 
-sr_error_info_t *
+static sr_error_info_t *
 sr_lydmods_conn_ctx_update(sr_conn_ctx_t *conn, struct ly_ctx **ly_ctx, int apply_sched, int err_on_sched_fail,
         int *changed)
 {
@@ -2335,8 +2335,8 @@ cleanup:
 }
 
 sr_error_info_t *
-sr_lydmods_deferred_add_module(sr_main_shm_t *main_shm, struct ly_ctx *ly_ctx, const struct lys_module *ly_mod,
-        const char **features, const sr_module_ds_t *module_ds)
+sr_lydmods_change_add_module(sr_conn_ctx_t *conn, const struct lys_module *ly_mod, const sr_module_ds_t *module_ds,
+        struct lyd_node **sr_mods)
 {
     sr_error_info_t *err_info = NULL;
     struct lyd_node *sr_mods = NULL, *inst_mod, *ds_plugin;
@@ -2423,55 +2423,6 @@ cleanup:
     return err_info;
 }
 
-sr_error_info_t *
-sr_lydmods_unsched_add_module(sr_main_shm_t *main_shm, struct ly_ctx *ly_ctx, const char *module_name)
-{
-    sr_error_info_t *err_info = NULL;
-    struct lyd_node *sr_mods = NULL;
-    struct ly_set *set = NULL;
-    char *path = NULL;
-
-    /* LYDMODS LOCK */
-    if ((err_info = sr_lydmods_lock(&main_shm->lydmods_lock, ly_ctx, __func__))) {
-        return err_info;
-    }
-
-    /* parse current module information */
-    if ((err_info = sr_lydmods_parse(ly_ctx, &sr_mods))) {
-        goto cleanup;
-    }
-
-    /* check that the module is scheduled for installation */
-    if (asprintf(&path, "installed-module[name=\"%s\"]", module_name) == -1) {
-        SR_ERRINFO_MEM(&err_info);
-        goto cleanup;
-    }
-    SR_CHECK_INT_GOTO(lyd_find_xpath(sr_mods, path, &set), err_info, cleanup);
-    if (!set->count) {
-        sr_errinfo_new(&err_info, SR_ERR_NOT_FOUND, "Module \"%s\" not scheduled for installation.", module_name);
-        goto cleanup;
-    }
-
-    /* unschedule installation */
-    lyd_free_tree(set->dnodes[0]);
-
-    /* store the updated persistent data tree */
-    if ((err_info = sr_lydmods_print(&sr_mods))) {
-        goto cleanup;
-    }
-
-    SR_LOG_INF("Module \"%s\" installation unscheduled.", module_name);
-
-cleanup:
-    /* LYDMODS UNLOCK */
-    sr_munlock(&main_shm->lydmods_lock);
-
-    free(path);
-    ly_set_free(set, NULL);
-    lyd_free_all(sr_mods);
-    return err_info;
-}
-
 /**
  * @brief Load an installed module from sysrepo module data into a context with any other installed modules.
  *
@@ -2532,7 +2483,7 @@ cleanup:
     return err_info;
 }
 
-sr_error_info_t *
+static sr_error_info_t *
 sr_lydmods_deferred_add_module_data(sr_main_shm_t *main_shm, struct ly_ctx *ly_ctx, const char *module_name,
         const char *data, const char *data_path, LYD_FORMAT format)
 {
@@ -2634,7 +2585,7 @@ cleanup:
 }
 
 sr_error_info_t *
-sr_lydmods_deferred_del_module(sr_main_shm_t *main_shm, struct ly_ctx *ly_ctx, const char *mod_name)
+sr_lydmods_change_del_module(sr_conn_ctx_t *conn, const char *mod_name, struct lyd_node **sr_mods)
 {
     sr_error_info_t *err_info = NULL;
     struct lyd_node *sr_mods = NULL;
@@ -2735,7 +2686,7 @@ cleanup:
     return err_info;
 }
 
-sr_error_info_t *
+static sr_error_info_t *
 sr_lydmods_unsched_del_module_with_imps(sr_main_shm_t *main_shm, struct ly_ctx *ly_ctx, const struct lys_module *ly_mod)
 {
     sr_error_info_t *err_info = NULL;
@@ -2768,7 +2719,7 @@ cleanup:
 }
 
 sr_error_info_t *
-sr_lydmods_deferred_upd_module(sr_main_shm_t *main_shm, struct ly_ctx *ly_ctx, const struct lys_module *ly_upd_mod)
+sr_lydmods_change_upd_module(sr_conn_ctx_t *conn, const struct lys_module *ly_mod, struct lyd_node **sr_mods)
 {
     sr_error_info_t *err_info = NULL;
     struct lyd_node *sr_mods = NULL;
@@ -2826,7 +2777,7 @@ cleanup:
     return err_info;
 }
 
-sr_error_info_t *
+static sr_error_info_t *
 sr_lydmods_unsched_upd_module(sr_main_shm_t *main_shm, struct ly_ctx *ly_ctx, const char *mod_name)
 {
     sr_error_info_t *err_info = NULL;
@@ -2877,8 +2828,8 @@ cleanup:
 }
 
 sr_error_info_t *
-sr_lydmods_deferred_change_feature(sr_main_shm_t *main_shm, struct ly_ctx *ly_ctx, const struct lys_module *ly_mod,
-        const char *feat_name, int to_enable, int is_enabled)
+sr_lydmods_change_mod_feature(sr_conn_ctx_t *conn, const char *mod_name, const char *feat_name, int enable,
+        struct lyd_node **sr_mods)
 {
     sr_error_info_t *err_info = NULL;
     struct lyd_node *sr_mods = NULL;
@@ -3018,7 +2969,7 @@ sr_lydmods_update_replay_support_module(sr_conn_ctx_t *conn, const struct lys_mo
 }
 
 sr_error_info_t *
-sr_lydmods_update_replay_support(sr_conn_ctx_t *conn, const struct lys_module *ly_mod, int replay_support)
+sr_lydmods_change_mod_replay_support(sr_conn_ctx_t *conn, const struct lys_module *ly_mod, int enable)
 {
     sr_error_info_t *err_info = NULL;
     struct lyd_node *sr_mods = NULL, *sr_mod;

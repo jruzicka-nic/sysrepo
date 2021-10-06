@@ -120,6 +120,11 @@ sr_notif_buf_store(struct sr_sess_notif_buf *notif_buf, const struct lyd_node *n
         notif_buf->last->next = node;
         notif_buf->last = node;
     } else {
+        /* CONTEXT LOCK */
+        if ((err_info = sr_lycc_lock(conn, SR_LOCK_READ))) {
+            goto error;
+        }
+
         assert(!notif_buf->first);
         notif_buf->first = node;
         notif_buf->last = node;
@@ -223,6 +228,9 @@ sr_notif_buf_thread_write_notifs(sr_conn_ctx_t *conn, struct sr_sess_notif_buf_n
         lyd_free_siblings(prev->notif);
         free(prev);
     }
+
+    /* CONTEXT UNLOCK */
+    sr_lycc_unlock(conn, SR_LOCK_READ);
 
     return NULL;
 }

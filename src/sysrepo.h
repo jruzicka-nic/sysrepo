@@ -123,8 +123,7 @@ void sr_log_set_cb(sr_log_cb log_callback);
  * ID of every connection. Forking will duplicate the connection and ID resulting in a mismatch.
  *
  * @param[in] opts Options overriding default connection handling by this call.
- * @param[out] conn Connection that can be used for subsequent API calls
- * (automatically allocated, it is supposed to be released by the caller using ::sr_disconnect).
+ * @param[out] conn Connection that can be used for subsequent API calls.
  * @return Error code (::SR_ERR_OK on success).
  */
 int sr_connect(const sr_conn_options_t opts, sr_conn_ctx_t **conn);
@@ -152,12 +151,25 @@ int sr_connection_count(uint32_t *conn_count);
 
 /**
  * @brief Get the _libyang_ context used by a connection. Can be used in an application for working with data
- * and schemas. Do **NOT** change this context!
+ * and schemas.
+ *
+ * @note This context **must not** be changed. Also, to prevent the context from being destroyed by sysrepo,
+ * it is locked and after no longer needing the context ::sr_release_context() must be called. Otherwise,
+ * API functions changing the context will fail with time out.
  *
  * @param[in] conn Connection to use.
  * @return Const libyang context.
  */
-const struct ly_ctx *sr_get_context(sr_conn_ctx_t *conn);
+const struct ly_ctx *sr_acquire_context(sr_conn_ctx_t *conn);
+
+/**
+ * @brief Release _libyang_ context obtained from a connection.
+ *
+ * @note Must be called for each ::sr_acquire_context() call.
+ *
+ * @param[in] conn Connection to use.
+ */
+void sr_release_context(sr_conn_ctx_t *conn);
 
 /**
  * @brief Get content ID of the current YANG module set. It conforms to the requirements for ietf-yang-library
@@ -450,9 +462,9 @@ sr_conn_ctx_t *sr_session_get_connection(sr_session_ctx_t *session);
 const char *sr_get_repo_path(void);
 
 /**
- * @brief Install a new schema (module) into sysrepo. Deferred until there are no connections!
+ * @brief Install a new schema (module) into sysrepo.
  *
- * For all datastores the internal DS implementation `LYB file` is used.
+ * For all datastores and notifications the default plugins are used.
  *
  * @param[in] conn Connection to use.
  * @param[in] schema_path Path to the new schema. Can have either YANG or YIN extension/format.
@@ -463,31 +475,21 @@ const char *sr_get_repo_path(void);
 int sr_install_module(sr_conn_ctx_t *conn, const char *schema_path, const char *search_dirs, const char **features);
 
 /**
- * @brief Install a new schema (module) into sysrepo. Deferred until there are no connections!
+ * @brief Install a new schema (module) into sysrepo.
  *
  * @param[in] conn Connection to use.
  * @param[in] schema_path Path to the new schema. Can have either YANG or YIN extension/format.
  * @param[in] search_dirs Optional search directories for import schemas, supports the format `<dir>[:<dir>]*`.
  * @param[in] features Optional array of enabled features ended with NULL.
- * @param[in] module_ds Datastore implementation plugin name for each config datastore.
- * @return Error code (::SR_ERR_OK on success).
- */
-int sr_install_module_custom_ds(sr_conn_ctx_t *conn, const char *schema_path, const char *search_dirs,
-        const char **features, const sr_module_ds_t *module_ds);
-
-/**
- * @brief Set newly installed module startup and running data. It is necessary in case empty data are not valid
- * for the particular schema (module).
+ * @param[in] module_ds Datastore implementation plugin name for each config datastore, NULL for defaults.
+ * @param[in] data Optional initial data in @p format to set.
+ * @param[in] data_path Optional path to a data file in @p format to set.
+ * @param[in] format Format of @p data or @p data_path file.
  *
- * @param[in] conn Connection to use.
- * @param[in] module_name Name of the module to set startup data.
- * @param[in] data Data to set. Must be NULL if @p data_path is set.
- * @param[in] data_path Data file with the data to set. Must be NULL if @p data is set.
- * @param[in] format Format of the data/file.
  * @return Error code (::SR_ERR_OK on success).
  */
-int sr_install_module_data(sr_conn_ctx_t *conn, const char *module_name, const char *data, const char *data_path,
-        LYD_FORMAT format);
+int sr_install_module2(sr_conn_ctx_t *conn, const char *schema_path, const char *search_dirs, const char **features,
+        const sr_module_ds_t *module_ds, const char *data, const char *data_path, LYD_FORMAT format);
 
 /**
  * @brief Remove an installed module from sysrepo. Deferred until there are no connections!
@@ -517,10 +519,20 @@ int sr_update_module(sr_conn_ctx_t *conn, const char *schema_path, const char *s
  *
  * @param[in] conn Connection to use.
  * @param[in] module_name Name of the module to change. NULL to change all the modules.
- * @param[in] replay_support 0 to disabled, non-zero to enable.
+ * @param[in] enable 0 to disable, non-zero to enable.
  * @return Error code (::SR_ERR_OK on success).
  */
-int sr_set_module_replay_support(sr_conn_ctx_t *conn, const char *module_name, int replay_support);
+int sr_set_module_replay_support(sr_conn_ctx_t *conn, const char *module_name, int enable);
+
+/**
+ * @brief Learn replay support of a module.
+ *
+ * @param[in] conn Connection to use.
+ * @param[in] module_name Name of the module to check.
+ * @param[out] enabled Whether replay support is enabled or disabled.
+ * @return Error code (::SR_ERR_OK on success).
+ */
+int sr_get_module_replay_support(sr_conn_ctx_t *conn, const char *module_name, int *enabled);
 
 /**
  * @brief Change module permissions.
@@ -895,7 +907,7 @@ int sr_discard_changes(sr_session_ctx_t *session);
  * @param[in] session Session ([DS](@ref sr_datastore_t)-specific - target datastore) to use.
  * @param[in] module_name If specified, limits the replace operation only to this module.
  * @param[in] src_config Source data to replace the datastore. Is ALWAYS spent and cannot be further used by the application!
- * @param[in] timeout_ms Configuration callback timeout in milliseconds. If 0, default is used.ň
+ * @param[in] timeout_ms Configuration callback timeout in milliseconds. If 0, default is used.
  * @return Error code (::SR_ERR_OK on success).
  */
 int sr_replace_config(sr_session_ctx_t *session, const char *module_name, struct lyd_node *src_config,

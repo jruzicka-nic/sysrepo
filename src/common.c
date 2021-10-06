@@ -1912,7 +1912,7 @@ sr_file_exists(const char *path)
  * @return err_info, NULL on success.
  */
 static sr_error_info_t *
-sr_store_module_file(const struct lys_module *ly_mod, const struct lysp_submodule *lysp_submod)
+sr_store_module_yang(const struct lys_module *ly_mod, const struct lysp_submodule *lysp_submod)
 {
     sr_error_info_t *err_info = NULL;
     struct ly_out *out = NULL;
@@ -1961,7 +1961,7 @@ cleanup:
 }
 
 sr_error_info_t *
-sr_remove_module_file_r(const struct lys_module *ly_mod, const struct ly_ctx *new_ctx)
+sr_remove_module_yang_r(const struct lys_module *ly_mod, const struct ly_ctx *new_ctx)
 {
     sr_error_info_t *err_info = NULL;
     char *path;
@@ -2004,7 +2004,7 @@ sr_remove_module_file_r(const struct lys_module *ly_mod, const struct ly_ctx *ne
 
     /* remove all (unused) imports recursively */
     LY_ARRAY_FOR(pmod->imports, u) {
-        if ((err_info = sr_remove_module_file_r(pmod->imports[u].module, new_ctx))) {
+        if ((err_info = sr_remove_module_yang_r(pmod->imports[u].module, new_ctx))) {
             return err_info;
         }
     }
@@ -2039,7 +2039,7 @@ sr_ly_module_is_internal(const struct lys_module *ly_mod)
 }
 
 sr_error_info_t *
-sr_store_module_files(const struct lys_module *ly_mod)
+sr_store_module_yang_r(const struct lys_module *ly_mod)
 {
     sr_error_info_t *err_info = NULL;
     LY_ARRAY_COUNT_TYPE u;
@@ -2050,13 +2050,20 @@ sr_store_module_files(const struct lys_module *ly_mod)
     }
 
     /* store module file */
-    if ((err_info = sr_store_module_file(ly_mod, NULL))) {
+    if ((err_info = sr_store_module_yang(ly_mod, NULL))) {
         return err_info;
     }
 
     /* store files of all submodules */
     LY_ARRAY_FOR(ly_mod->parsed->includes, u) {
-        if ((err_info = sr_store_module_file(ly_mod, ly_mod->parsed->includes[u].submodule))) {
+        if ((err_info = sr_store_module_yang(ly_mod, ly_mod->parsed->includes[u].submodule))) {
+            return err_info;
+        }
+    }
+
+    /* recursively for all imports */
+    LY_ARRAY_FOR(ly_mod->parsed->imports, u) {
+        if ((err_info = sr_store_module_yang_r(ly_mod->parsed->imports[u].module))) {
             return err_info;
         }
     }

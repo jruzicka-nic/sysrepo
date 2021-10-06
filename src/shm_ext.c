@@ -164,6 +164,39 @@ cleanup_unlock:
     sr_errinfo_free(&err_info);
 }
 
+sr_error_info_t *
+sr_shmext_open(sr_shm_t *shm, int zero)
+{
+    sr_error_info_t *err_info = NULL;
+    char *shm_name = NULL;
+
+    err_info = sr_path_ext_shm(&shm_name);
+    if (err_info) {
+        return err_info;
+    }
+
+    shm->fd = sr_open(shm_name, O_RDWR | O_CREAT, SR_MAIN_SHM_PERM);
+    free(shm_name);
+    if (shm->fd == -1) {
+        sr_errinfo_new(&err_info, SR_ERR_SYS, "Failed to open ext shared memory (%s).", strerror(errno));
+        goto error;
+    }
+
+    /* either zero the memory or keep it exactly the way it was */
+    if ((err_info = sr_shm_remap(shm, zero ? SR_SHM_SIZE(sizeof(sr_ext_shm_t)) : 0))) {
+        goto error;
+    }
+    if (zero) {
+        ((sr_ext_shm_t *)shm->addr)->first_hole_off = 0;
+    }
+
+    return NULL;
+
+error:
+    sr_shm_clear(shm);
+    return err_info;
+}
+
 /**
  * @brief Item holding information about a SHM object for debug printing.
  */

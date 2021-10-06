@@ -43,14 +43,14 @@ struct srplg_ntf_s;
 /** macro for checking session type */
 #define SR_IS_EVENT_SESS(session) (session->ev != SR_SUB_EV_NONE)
 
-/** macro for getting a SHM module on a specific index */
-#define SR_SHM_MOD_IDX(main_shm_addr, idx) ((sr_mod_t *)(((char *)main_shm_addr) + sizeof(sr_main_shm_t) + idx * sizeof(sr_mod_t)))
-
 /* macro for getting aligned SHM size */
 #define SR_SHM_SIZE(size) ((size) + ((~(size) + 1) & (SR_SHM_MEM_ALIGN - 1)))
 
 /* macro for getting main SHM from a connection */
 #define SR_CONN_MAIN_SHM(conn) ((sr_main_shm_t *)(conn)->main_shm.addr)
+
+/* macro for getting mod SHM from a connection */
+#define SR_CONN_MOD_SHM(conn) ((sr_mod_shm_t *)(conn)->mod_shm.addr)
 
 /* macro for getting ext SHM from a connection */
 #define SR_CONN_EXT_SHM(conn) ((sr_ext_shm_t *)(conn)->ext_shm.addr)
@@ -61,8 +61,8 @@ struct srplg_ntf_s;
 /** timeout for locking subscription structure lock, should be enough for a single ::sr_process_events() call (ms) */
 #define SR_SUBSCR_LOCK_TIMEOUT 30000
 
-/** timeout for locking lydmods data for access; should be enough for parsing, applying any scheduled changes, and printing (ms) */
-#define SR_LYDMODS_LOCK_TIMEOUT 5000
+/** timeout for locking context; should be enough for changing it (ms) */
+#define SR_CONTEXT_LOCK_TIMEOUT 10000
 
 /** timeout for locking notification buffer lock, used when adding/removing notifications (ms) */
 #define SR_NOTIF_BUF_LOCK_TIMEOUT 100
@@ -471,15 +471,15 @@ sr_error_info_t *sr_ntf_plugin_find(const char *ntf_plugin_name, sr_conn_ctx_t *
  * @param[in] new_ctx New context without @p ly_mod.
  * @return err_info, NULL on success.
  */
-sr_error_info_t *sr_remove_module_file_r(const struct lys_module *ly_mod, const struct ly_ctx *new_ctx);
+sr_error_info_t *sr_remove_module_yang_r(const struct lys_module *ly_mod, const struct ly_ctx *new_ctx);
 
 /**
- * @brief Create (print) YANG module file and all of its submodules.
+ * @brief Create (print) YANG module file and all of its submodules and imports.
  *
- * @param[in] ly_mod Module to print.
+ * @param[in] ly_mod Module to store.
  * @return err_info, NULL on success.
  */
-sr_error_info_t *sr_store_module_files(const struct lys_module *ly_mod);
+sr_error_info_t *sr_store_module_yang_r(const struct lys_module *ly_mod);
 
 /**
  * @brief Check whether a module is internal libyang or sysrepo module.
@@ -488,15 +488,6 @@ sr_error_info_t *sr_store_module_files(const struct lys_module *ly_mod);
  * @return 0 if not, non-zero if it is.
  */
 int sr_module_is_internal(const struct lys_module *ly_mod);
-
-/**
- * @brief Create all module import and include files, recursively.
- *
- * @param[in] ly_mod libyang module whose imports and includes to create. Overriden by @p lysp_submod.
- * @param[in] lysp_submod Optional libyang parsed submodule whose imports and includes to create.
- * @return err_info, NULL on success.
- */
-sr_error_info_t *sr_create_module_imps_incs_r(const struct lys_module *ly_mod, const struct lysp_submodule *lysp_submod);
 
 /**
  * @brief Get the path the main SHM.

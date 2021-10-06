@@ -39,6 +39,162 @@
 #include "plugins_datastore.h"
 
 sr_error_info_t *
+sr_shmmod_open(sr_shm_t *shm, int zero)
+{
+    sr_error_info_t *err_info = NULL;
+    char *shm_name = NULL;
+
+    err_info = sr_path_mod_shm(&shm_name);
+    if (err_info) {
+        return err_info;
+    }
+
+    shm->fd = sr_open(shm_name, O_RDWR | O_CREAT, SR_MAIN_SHM_PERM);
+    free(shm_name);
+    if (shm->fd == -1) {
+        sr_errinfo_new(&err_info, SR_ERR_SYS, "Failed to open mod shared memory (%s).", strerror(errno));
+        goto error;
+    }
+
+    /* either zero the memory or keep it exactly the way it was */
+    if ((err_info = sr_shm_remap(shm, zero ? SR_SHM_SIZE(sizeof(sr_mod_shm_t)) : 0))) {
+        goto error;
+    }
+    if (zero) {
+        ((sr_mod_shm_t *)shm->addr)->mod_count = 0;
+    }
+
+    return NULL;
+
+error:
+    sr_shm_clear(shm);
+    return err_info;
+}
+
+sr_mod_t *
+sr_shmmod_find_module(sr_mod_shm_t *mod_shm, const char *name)
+{
+    sr_mod_t *shm_mod;
+    uint32_t i;
+
+    assert(name);
+
+    for (i = 0; i < main_shm->mod_count; ++i) {
+        shm_mod = SR_SHM_MOD_IDX(main_shm, i);
+        if (!strcmp(((char *)main_shm) + shm_mod->name, name)) {
+            return shm_mod;
+        }
+    }
+
+    return NULL;
+}
+
+sr_rpc_t *
+sr_shmmod_find_rpc(sr_mod_shm_t *mod_shm, const char *path)
+{
+    sr_mod_t *shm_mod;
+    sr_rpc_t *shm_rpc;
+    char *mod_name;
+    uint16_t i;
+
+    assert(path);
+
+    /* find module first */
+    mod_name = sr_get_first_ns(path);
+    shm_mod = sr_shmmain_find_module(main_shm, mod_name);
+    free(mod_name);
+    if (!shm_mod) {
+        return NULL;
+    }
+
+    shm_rpc = (sr_rpc_t *)(((char *)main_shm) + shm_mod->rpcs);
+    for (i = 0; i < shm_mod->rpc_count; ++i) {
+        if (!strcmp(((char *)main_shm) + shm_rpc[i].path, path)) {
+            return &shm_rpc[i];
+        }
+    }
+
+    return NULL;
+}
+
+sr_error_info_t *
+sr_shmmod_store_modules(sr_mod_shm_t *mod_shm, struct lyd_node *first_sr_mod)
+{
+    sr_error_info_t *err_info = NULL;
+    struct lyd_node *sr_mod;
+    sr_mod_t *shm_mod;
+    uint32_t i, mod_count;
+
+    /* count how many modules are we going to store */
+    mod_count = 0;
+    LY_LIST_FOR(first_sr_mod, sr_mod) {
+        if (!strcmp(sr_mod->schema->name, "module")) {
+            ++mod_count;
+        }
+    }
+
+    /* enlarge main SHM for all the modules */
+    if ((err_info = sr_shm_remap(&conn->main_shm, sizeof(sr_main_shm_t) + mod_count * sizeof *shm_mod))) {
+        return err_info;
+    }
+
+    /* set module count */
+    SR_CONN_MAIN_SHM(conn)->mod_count = mod_count;
+
+    /* add all modules into SHM */
+    i = 0;
+    sr_mod = first_sr_mod;
+    while (i < mod_count) {
+        if (!strcmp(sr_mod->schema->name, "module")) {
+            if ((err_info = sr_shmmain_fill_module(sr_mod, i, &conn->main_shm))) {
+                return err_info;
+            }
+
+            ++i;
+        }
+
+        sr_mod = sr_mod->next;
+    }
+
+    /*
+     * Dependencies of old modules are rebuild because of possible
+     * 1) new inverse dependencies when new modules depend on the old ones;
+     * 2) new dependencies in the old modules in case they were added by foreign augments in the new modules.
+     * Checking these cases would probably be more costly than just always rebuilding all dependencies.
+     */
+
+    /* add all dependencies/operations with dependencies for all modules in SHM, in separate loop because
+     * all modules must have their name set so that it can be referenced */
+    i = 0;
+    sr_mod = first_sr_mod;
+    while (i < mod_count) {
+        if (!strcmp(sr_mod->schema->name, "module")) {
+            if ((err_info = sr_shmmain_add_module_deps(sr_mod, i, &conn->main_shm))) {
+                return err_info;
+            }
+            if ((err_info = sr_shmmain_add_module_rpcs(sr_mod, i, &conn->main_shm))) {
+                return err_info;
+            }
+            if ((err_info = sr_shmmain_add_module_notifs(sr_mod, i, &conn->main_shm))) {
+                return err_info;
+            }
+
+            ++i;
+        }
+
+        sr_mod = sr_mod->next;
+    }
+
+    return NULL;
+}
+
+sr_error_info_t *
+sr_shmmod_ctx_load_modules(sr_conn_ctx_t *conn, struct ly_ctx *ly_ctx, const char *skip_mod_name)
+{
+
+}
+
+sr_error_info_t *
 sr_shmmod_collect_edit(const struct lyd_node *edit, struct sr_mod_info_s *mod_info)
 {
     sr_error_info_t *err_info = NULL;

@@ -89,6 +89,7 @@ typedef enum {
  */
 struct sr_conn_ctx_s {
     struct ly_ctx *ly_ctx;          /**< Libyang context, also available to user. */
+    uint32_t content_id;            /**< Connection context content id. */
     sr_conn_options_t opts;         /**< Connection options. */
     sr_diff_check_cb diff_check_cb; /**< Connection user diff check callback. */
 
@@ -97,10 +98,11 @@ struct sr_conn_ctx_s {
     uint32_t session_count;         /**< Session count. */
     sr_cid_t cid;                   /**< Globally unique connection ID */
 
-    int main_create_lock;           /**< Process-shared file lock for creating main/ext SHM. */
-    sr_rwlock_t ext_remap_lock;     /**< Session-shared lock only for remapping ext SHM. */
+    int create_lock;                /**< Process-shared file lock for creating main/mod/ext SHM. */
+    sr_rwlock_t remap_lock;         /**< Session-shared lock only for remapping mod/ext SHM. */
     sr_shm_t main_shm;              /**< Main SHM structure. */
-    sr_shm_t ext_shm;               /**< External SHM structure (all stored offsets point here). */
+    sr_shm_t mod_shm;               /**< Mod SHM structure. */
+    sr_shm_t ext_shm;               /**< External SHM structure. */
 
     struct sr_ds_handle_s {
         void *dl_handle;            /**< Handle from dlopen(3) call. */
